@@ -1,0 +1,4 @@
+*.txt
+*.o
+reglan
+reglan_dbg
