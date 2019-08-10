@@ -205,35 +205,39 @@ library is needed, no third-party dependencies.
 Testing
 -------
 
-There is simple python-based test script. `reglan` binary should be 
-placed near `test.py` script, then run `python test.py`.
-Basically, it generates some random finite regular languages and checks 
-that `reglan` outputs only proper words and that total amount of words 
-is correct.
+There is simple shellscript that do the following:
+
+  - run `make all` from `src` directory
+  - copy all binaries (`reglan`, `libreglan.a`, `libreglan.so`) and 
+  header `reglan.h` to `test` directory
+  - run simple python-based test script `test.py` which exptects that 
+  executable `reglan` is near; it generates some random finite regular 
+  languages and checks that `reglan` outputs only proper words and that 
+  total amount of words is correct
+  - compiles simple `test.c` program twice: statically linked with 
+  `libreglan.a` and dynamically linkes with `libreglan.so`, then checks 
+  that produced executable runs correctly
 
 
 TODO
 ----
 
 
-  - refactor:
-    + merge SOption into SRegExp
-    + SRegExp should be implemented as `union` (backref/charset/words/subexpr)
-    + SNode and SAlternative are state-holding counterparts of SRegExp 
-    and SBranch respectively, so they must contain references to then 
-    (`src`) plus state itself (`ptr` or `adds/maxs`)
+  - do not exit(-1) on errors (at least while embedding to other languages)
   - better documentation, including:
     + comments everywhere
     + doxygen comments
     + man and/or info format
+  - add flexibility to extended syntax:
+    + (?<ext-opts>:<expr>)
   - aliases, some way to define "subexpressions" and then reuse them;
+  - some way to reproduce `john` functionality, e.g. uppercase-lowercase 
+  word, capitalize first/last letter etc.
   - unicode support;
-  - basic syntax check with useful error codes/messages;
   - automatically increase buffer for output word as needed;
   - test with different environments, including Windows;
   - add wrappers for different languages/platforms:
-    + dll/so/lib
-    + python, nodejs, ruby, perl, php
+    + nodejs, ruby, perl, php
     + java, .net/mono
     + mysql, mssql, postgres
   - packages:

@@ -1,0 +1,5 @@
+*.a
+*.so
+test_static
+test_shared
+reglan

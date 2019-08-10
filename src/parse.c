@@ -1,5 +1,16 @@
 #include "reglan.h"
 
+static void chars_to_set(char *chars, int chars_length, char **set, int *set_length);
+static void make_full_set(char **set, int *set_length);
+static int parse_hex(char ch);
+static char *parse_range(char *src, int *min_count, int *max_count);
+static char *parse_escaped_sequence(char *src, char **set, int *set_length);
+static char *parse_set(char *src, char **set, int *set_length);
+static char *parse_words(char *src, char **fname, char ***words, int *count);
+
+static void find_backrefs(struct SRegexpr *p, struct SRegexpr *backrefs[]);
+static void set_backrefs(struct SRegexpr *p, struct SRegexpr *backrefs[]);
+
 static void chars_to_set(char *chars, int chars_length, char **set, int *set_length) {
     int i;
     
@@ -35,16 +46,18 @@ static int parse_hex(char ch) {
         return (ch - 'A' + 10);
     if ('a' <= ch && ch <= 'f')
         return (ch - 'a' + 10);
+    PRINT_ERR("Can't parse hex char '%c'\n", ch);
+    exit(-1);
     return 0;
 }
 
-char *parse_range(char *src, int *min_count, int *max_count) {
+static char *parse_range(char *src, int *min_count, int *max_count) {
     char *end;
     char *comma;
     
     if (!(end = strchr(src, '}'))) {
-        PRINT_DBG("Can't find enclosing char }\n");
-        return NULL;
+        PRINT_ERR("Can't find enclosing char }\n");
+        exit(-1);
     }
     
     *min_count = atoi(src + 1);
@@ -64,7 +77,7 @@ char *parse_range(char *src, int *min_count, int *max_count) {
     return end;
 }
 
-char *parse_escaped_sequence(char *src, char **set, int *set_length) {
+static char *parse_escaped_sequence(char *src, char **set, int *set_length) {
     int index = 1;
     char ch = src[index];
     switch (src[index]) {
@@ -118,7 +131,7 @@ char *parse_escaped_sequence(char *src, char **set, int *set_length) {
     return src + index;
 }
 
-char *parse_set(char *src, char **set, int *set_length) {
+static char *parse_set(char *src, char **set, int *set_length) {
     int index = 1;
     int negate;
     int prev_ch = -1;
@@ -162,6 +175,11 @@ char *parse_set(char *src, char **set, int *set_length) {
         prev_ch = ch;
     }
     
+    if (!src[index]) {
+        PRINT_ERR("Can't find matching ']'\n");
+        exit(-1);
+    }
+    
     if (negate) {
         PRINT_DBG("Negating charset\n");
         for (i = MIN_CHAR; i < MAX_CHAR; i++)
@@ -173,15 +191,11 @@ char *parse_set(char *src, char **set, int *set_length) {
     return src + index;
 }
 
-char *parse_dict(char *src, PRegExp words) {
+static char *parse_words(char *src, char **fname, char ***words, int *count) {
     char buffer[1024];
     FILE *fdict;
     char *end;
     int i, j;
-    
-    words->branches = 0;
-    words->branches_length = 0;
-    words->branches_capacity = 0;
     
     end = strchr(src, ')');
     if (end == NULL)
@@ -191,6 +205,9 @@ char *parse_dict(char *src, PRegExp words) {
         i = sizeof(buffer) - 1;
     strncpy(buffer, src, i);
     buffer[i] = '\x00';
+    
+    *fname = (char*)malloc(i + 1);
+    memcpy(*fname, buffer, i + 1);
     
     fdict = fopen(buffer, "r");
     
@@ -202,17 +219,17 @@ char *parse_dict(char *src, PRegExp words) {
             i++;
     }
     
-    words->words_count = i;
-    words->words = (char**)malloc(words->words_count * sizeof(char *));
+    *count = i;
+    *words = (char**)malloc(*count * sizeof(char *));
     fseek(fdict, 0, SEEK_SET);
-    for (i = 0, j = 0; i < words->words_count;) {
+    for (i = 0, j = 0; i < *count;) {
         int ch = fgetc(fdict);
         if (ch == EOF)
             break;
         if (ch == '\n') {
-            words->words[i] = (char*)malloc(j + 1);
-            memcpy(words->words[i], buffer, j);
-            words->words[i][j] = '\x00';
+            (*words)[i] = (char*)malloc(j + 1);
+            memcpy((*words)[i], buffer, j);
+            (*words)[i][j] = '\x00';
             j = 0;
             i++;
         }
@@ -223,122 +240,138 @@ char *parse_dict(char *src, PRegExp words) {
     
     fclose(fdict);
     
-    PRINT_DBG("Loaded dictionary <%s>, total %d word(s)\n", src, words->words_count);
+    PRINT_DBG("Loaded dictionary <%s>, total %d word(s)\n", src, *count);
     
     return end;
 }
 
-char *parse_expr(char *src, PRegExp branches, int total_groups) {
+char *parse_expr(char *src, struct SRegexpr *p, int *total_groups) {
     int index;
-    Branch branch;
+    struct SRegexpr sub;
     
-    LIST_INIT(&branch, options);
-    LIST_INIT(branches, branches);
-    branches->words = NULL;
-    branches->words_count = 0;
+    memset(p, 0, sizeof(struct SRegexpr));
+    p->min_count = p->max_count = 1;
+    memset(&sub, 0, sizeof(struct SRegexpr));
+    sub.min_count = sub.max_count = 1;
+    
+    p->type = TAlter;
+    LIST_INIT(&p->v.alter, exprs);
+    
+    sub.type = TConcat;
+    LIST_INIT(&sub.v.concat, exprs);
     
     for (index = 0; src[index]; index++) {
         int ch = src[index];
         char *end;
         if (ch == '.') {
-            Option option;
-            memset(&option, 0, sizeof(option));
-            make_full_set(&option.chars, &option.chars_length);
-            option.min_count = option.max_count = 1;
-            LIST_APPEND(&branch, options, option);
+            struct SRegexpr re;
+            memset(&re, 0, sizeof(re));
+            re.min_count = re.max_count = 1;
+            
+            re.type = TCharset;
+            make_full_set(&re.v.set.chars, &re.v.set.count);
+            re.min_count = re.max_count = 1;
+            re.full_length = re.v.set.count;
+            LIST_APPEND(&sub.v.concat, exprs, re);
             PRINT_DBG("Fullset added\n");
         }
         else if (ch == '[') {
-            Option option;
-            memset(&option, 0, sizeof(option));
-            end = parse_set(src + index, &option.chars, &option.chars_length);
-            option.min_count = option.max_count = 1;
-            LIST_APPEND(&branch, options, option);
-            if (end)
-                index = end - src;
+            struct SRegexpr re;
+            memset(&re, 0, sizeof(re));
+            re.min_count = re.max_count = 1;
+            
+            re.type = TCharset;
+            end = parse_set(src + index, &re.v.set.chars, &re.v.set.count);
+            re.full_length = re.v.set.count;
+            LIST_APPEND(&sub.v.concat, exprs, re);
+            index = end - src;
             PRINT_DBG("Charset added\n");
         }
         else if (ch == '\\') {
-            Option option;
-            memset(&option, 0, sizeof(option));
-            option.min_count = option.max_count = 1;
+            struct SRegexpr re;
+            memset(&re, 0, sizeof(re));
+            re.min_count = re.max_count = 1;
+            
             if ('1' <= src[index+1] && src[index+1] <= '9') { // backreference
-                option.refnum = src[index+1] - '0';
-                PRINT_DBG("Backreference #%d added\n", option.refnum);
+                re.type = TBackref;
+                re.v.ref.num = src[index+1] - '0';
+                PRINT_DBG("Backreference #%d added\n", re.v.ref.num);
                 index++;
             }
             else {
-                end = parse_escaped_sequence(src + index, &option.chars, &option.chars_length);
-                if (end)
-                    index = end - src;
+                re.type = TCharset;
+                end = parse_escaped_sequence(src + index, &re.v.set.chars, &re.v.set.count);
+                index = end - src;
                 PRINT_DBG("Escaped sequence added\n");
             }
-            LIST_APPEND(&branch, options, option);
+            LIST_APPEND(&sub.v.concat, exprs, re);
         }
-        else if (ch == '*' && branch.options_length > 0) {
-            int last = branch.options_length - 1;
-            branch.options[last].min_count = 0;
-            branch.options[last].max_count = UNLIMITED;
+        else if (ch == '*' && sub.v.concat.count > 0) {
+            int last = sub.v.concat.count - 1;
+            sub.v.concat.exprs[last].min_count = 0;
+            sub.v.concat.exprs[last].max_count = UNLIMITED;
             PRINT_DBG("Asterisk added\n");
         }
-        else if (ch == '+' && branch.options_length > 0) {
-            int last = branch.options_length - 1;
-            branch.options[last].min_count = 1;
-            branch.options[last].max_count = UNLIMITED;
+        else if (ch == '+' && sub.v.concat.count > 0) {
+            int last = sub.v.concat.count - 1;
+            sub.v.concat.exprs[last].min_count = 1;
+            sub.v.concat.exprs[last].max_count = UNLIMITED;
+            sub.v.concat.exprs[last].max_count = UNLIMITED;
             PRINT_DBG("Plus added\n");
         }
-        else if (ch == '?' && branch.options_length > 0) {
-            int last = branch.options_length - 1;
-            branch.options[last].min_count = 0;
-            branch.options[last].max_count = 1;
+        else if (ch == '?' && sub.v.concat.count > 0) {
+            int last = sub.v.concat.count - 1;
+            sub.v.concat.exprs[last].min_count = 0;
+            sub.v.concat.exprs[last].max_count = 1;
             PRINT_DBG("Question added\n");
         }
-        else if (ch == '{' && branch.options_length > 0) {
-            int last = branch.options_length - 1;
+        else if (ch == '{' && sub.v.concat.count > 0) {
+            int last = sub.v.concat.count - 1;
             char *end = parse_range(src + index, 
-                &branch.options[last].min_count, &branch.options[last].max_count);
-            if (end)
-                index = end - src;
-            PRINT_DBG("Quant-parens added [%d .. %d]\n", branch.options[last].min_count, branch.options[last].max_count);
+                &sub.v.concat.exprs[last].min_count, 
+                &sub.v.concat.exprs[last].max_count);
+            index = end - src;
+            PRINT_DBG("Quant-parens added [%d .. %d]\n", 
+                sub.v.concat.exprs[last].min_count, 
+                sub.v.concat.exprs[last].max_count);
         }
         else if (ch == '|') {
-            LIST_APPEND(branches, branches, branch);
-            LIST_INIT(&branch, options);
+            LIST_APPEND(&p->v.alter, exprs, sub);
+            LIST_INIT(&sub.v.concat, exprs);
             PRINT_DBG("Alternative added\n");
         }
         else if (ch == '(') {
-            Option option;
-            int isgroup = 1, parsed = 0;
-            memset(&option, 0, sizeof(option));
+            int ngroup;
+            struct SRegexpr re;
+            memset(&re, 0, sizeof(re));
+            re.min_count = re.max_count = 1;
+            
+            ngroup = *total_groups + 1;
             end = NULL;
-            option.regexp = (PRegExp)calloc(1, sizeof(RegExp));
-            if (src[index+1] == '?') {
+            if (src[index+1] == '?') {  // special syntax
                 index++;
                 switch (src[index+1]) {
                     case ':':
-                        isgroup = 0;
                         index++;
+                    default:
+                        ngroup = 0;
                         break;
                     case 'F':
-                        end = parse_dict(src + index + 2, option.regexp);
-                        parsed = 1;
+                        re.type = TWords;
+                        end = parse_words(src + index + 2, &re.v.words.fname, 
+                            &re.v.words.words, &re.v.words.count);
                         PRINT_DBG("Dictionary added\n");
-                        break;
-                    default:
-                        isgroup = 0;
                         break;
                 }
             }
-            if (isgroup) {
-                total_groups++;
-                option.ngroup = total_groups;
-            }
-            if (!parsed)
-                end = parse_expr(src + index + 1, option.regexp, total_groups);
-            option.min_count = option.max_count = 1;
-            LIST_APPEND(&branch, options, option);
-            if (end)
-                index = end - src;
+            if (ngroup)
+                (*total_groups)++;
+            if (!end)
+                end = parse_expr(src + index + 1, &re, total_groups);
+            re.ngroup = ngroup;
+            
+            LIST_APPEND(&sub.v.concat, exprs, re);
+            index = end - src;
             PRINT_DBG("Subexpr added\n");
         }
         else if (ch == ')') {
@@ -346,97 +379,157 @@ char *parse_expr(char *src, PRegExp branches, int total_groups) {
             break;
         }
         else {
-            Option option;
-            memset(&option, 0, sizeof(option));
-            option.chars_length = 1;
-            option.chars = (char*)calloc(1, 1);
-            option.chars[0] = ch;
-            option.min_count = option.max_count = 1;
-            LIST_APPEND(&branch, options, option);
+            struct SRegexpr re;
+            memset(&re, 0, sizeof(re));
+            re.min_count = re.max_count = 1;
+            re.type = TCharset;
+            re.v.set.count = 1;
+            re.v.set.chars = (char*)calloc(1, 1);
+            re.v.set.chars[0] = ch;
+            LIST_APPEND(&sub.v.concat, exprs, re);
             PRINT_DBG("Just a char added '%c'\n", ch);
         }
     }
-    if (branch.options_length > 0) {
-        LIST_APPEND(branches, branches, branch);
+    if (sub.v.concat.count > 0) {
+        LIST_APPEND(&p->v.alter, exprs, sub);
     }
     return src + index;
 }
 
-static void find_backrefs(PRegExp regexp, POption backrefs[]) {
-    int i, j;
-    if (regexp->words)
-        return;
-    for (i = 0; i < regexp->branches_length; i++) {
-        PBranch branch = &regexp->branches[i];
-        for (j = 0; j < branch->options_length; j++) {
-            POption option = &branch->options[j];
-            int g = option->ngroup;
-            if (1 <= g && g <= 9) {
-                if (backrefs[g] && backrefs[g] != option) {
-                    PRINT_DBG("Duplicate backref #%d: <%p> =/= <%p>\n", g, backrefs[g], option);
-                }
-                backrefs[g] = option;
-            }
-            if (option->regexp)
-                find_backrefs(option->regexp, backrefs);
+static void find_backrefs(struct SRegexpr *p, struct SRegexpr *backrefs[]) {
+    int g = p->ngroup;
+    if (1 <= g && g <= 9) {
+        if (backrefs[g] && backrefs[g] != p) {
+            PRINT_ERR("Duplicate backref #%d: <%p> =/= <%p>\n", g, backrefs[g], p);
         }
+        backrefs[g] = p;
+    }
+    if (p->type == TAlter) {
+        int i;
+        for (i = 0; i < p->v.alter.count; i++)
+            find_backrefs(&p->v.alter.exprs[i], backrefs);
+    }
+    else if (p->type == TConcat) {
+        int i;
+        for (i = 0; i < p->v.concat.count; i++)
+            find_backrefs(&p->v.concat.exprs[i], backrefs);
     }
 }
 
-static void set_backrefs(PRegExp regexp, POption backrefs[]) {
-    int i, j;
-    if (regexp->words)
-        return;
-    for (i = 0; i < regexp->branches_length; i++) {
-        PBranch branch = &regexp->branches[i];
-        for (j = 0; j < branch->options_length; j++) {
-            POption option = &branch->options[j];
-            int r = option->refnum;
-            if (1 <= r && r <= 9) {
-                if (!backrefs[r]) {
-                    PRINT_DBG("Undefined backref #%d\n", r);
-                    option->backref = NULL;
-                }
-                else {
-                    option->backref = backrefs[r];
-                }
+static void set_backrefs(struct SRegexpr *p, struct SRegexpr *backrefs[]) {
+    if (p->type == TBackref) {
+        int r = p->v.ref.num;
+        if (1 <= r && r <= 9) {
+            if (!backrefs[r]) {
+                PRINT_ERR("Undefined backref #%d\n", r);
+                exit(-1);
             }
-            if (option->regexp)
-                set_backrefs(option->regexp, backrefs);
+            else {
+                p->v.ref.expr = backrefs[r];
+            }
         }
+    }
+    else if (p->type == TAlter) {
+        int i;
+        for (i = 0; i < p->v.alter.count; i++)
+            set_backrefs(&p->v.alter.exprs[i], backrefs);
+    }
+    else if (p->type == TConcat) {
+        int i;
+        for (i = 0; i < p->v.concat.count; i++)
+            set_backrefs(&p->v.concat.exprs[i], backrefs);
     }
 }
 
-void link_backrefs(PRegExp regexp) {
-    POption backrefs[10];
+void link_backrefs(struct SRegexpr *p) {
+    struct SRegexpr *backrefs[10];
     memset(backrefs, 0, sizeof(backrefs));
-    find_backrefs(regexp, backrefs);
-    set_backrefs(regexp, backrefs);
+    find_backrefs(p, backrefs);
+    set_backrefs(p, backrefs);
 }
 
-void parse(char *src, PRegExp regexp, PNode root) {
-    parse_expr(src, regexp, 0);
-    link_backrefs(regexp);
-    node_init(root, NULL, NULL, 0, regexp);
-}
-
-void regexp_free(PRegExp regexp) {
-    int i, j;
-    if (regexp->words) {
-        free(regexp->words);
-    }
-    else {
-        for (i = 0; i < regexp->branches_length; i++) {
-            PBranch branch = &regexp->branches[i];
-            for (j = 0; j < branch->options_length; j++) {
-                POption option = &branch->options[j];
-                if (option->regexp)
-                    regexp_free(option->regexp);
-                else if (option->chars)
-                    free(option->chars);
+void calc_full_length(struct SRegexpr *p) {
+    switch (p->type) {
+        case TBackref:
+            p->full_length = 0;
+            break;
+        case TCharset:
+            p->full_length = p->v.set.count;
+            break;
+        case TWords:
+            p->full_length = p->v.words.count;
+            break;
+        case TConcat:
+            {
+                int i, j, k;
+                p->full_length = 1;
+                for (i = 0; i < p->v.concat.count; i++) {
+                    struct SRegexpr *sub = &p->v.concat.exprs[i];
+                    calc_full_length(sub);
+                    if (sub->full_length == UNLIMITED && sub->max_count != 0)
+                        p->full_length = UNLIMITED;
+                    else if (sub->full_length != 0 && sub->max_count == UNLIMITED)
+                        p->full_length = UNLIMITED;
+                    else if (sub->full_length != 0) {
+                        long long all_counts_len = 0;
+                        for (j = sub->min_count; j <= sub->max_count; j++) {
+                            long long fixed_count_length = 1;
+                            for (k = 0; k < j; k++)
+                                fixed_count_length = ll_mul(fixed_count_length, sub->full_length);
+                            all_counts_len = ll_add(all_counts_len, fixed_count_length);
+                        }
+                        p->full_length = ll_mul(p->full_length, all_counts_len);
+                    }
+                    if (p->full_length == UNLIMITED)
+                        break;
+                }
             }
-            free(branch->options);
-        }
-        free(regexp->branches);
+            break;
+        case TAlter:
+            {
+                int i;
+                p->full_length = 0;
+                for (i = 0; i < p->v.alter.count; i++) {
+                    struct SRegexpr *sub = &p->v.alter.exprs[i];
+                    calc_full_length(sub);
+                    p->full_length = ll_add(p->full_length, sub->full_length);
+                    if (p->full_length == UNLIMITED)
+                        break;
+                }
+            }
+            break;
+    }
+}
+
+void parse(char *src, struct SRegexpr *p, struct SAlteration *root) {
+    int total_groups = 0;
+    parse_expr(src, p, &total_groups);
+    link_backrefs(p);
+    calc_full_length(p);
+    alteration_init(root, p);
+}
+
+void regexp_free(struct SRegexpr *p) {
+    int i;
+    switch (p->type) {
+        case TBackref:
+            break;
+        case TCharset:
+            free(p->v.set.chars);
+            break;
+        case TWords:
+            free(p->v.words.fname);
+            free(p->v.words.words);
+            break;
+        case TConcat:
+            for (i = 0; i < p->v.concat.count; i++)
+                regexp_free(&p->v.concat.exprs[i]);
+            free(p->v.concat.exprs);
+            break;
+        case TAlter:
+            for (i = 0; i < p->v.alter.count; i++)
+                regexp_free(&p->v.alter.exprs[i]);
+            free(p->v.alter.exprs);
+            break;
     }
 }

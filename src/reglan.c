@@ -58,31 +58,37 @@ int main(int argc, char* argv[]) {
     buffer = (char*)malloc(bufsize);
     
     for (; optind < argc; optind++) {
-        RegExp regexp;
-        Node root;
-        PNode fast_inc = NULL;
+        struct SRegexpr regexp;
+        struct SAlteration root;
+        struct SAlteration *fast_inc = NULL;
+        int fasts = 0;
         
         parse(argv[optind], &regexp, &root);
         if (print)
             regexp_print(&regexp, 0);
         
         if (offset)
-            node_set_offset(&root, offset);
+            alteration_set_offset(&root, offset);
         
         for (i = 1; max_n == UNLIMITED || i <= max_n; i++) {
             if (debug)
-                node_print(&root, 0);
+                alteration_print(&root, 0);
             
-            node_value(&root, buffer, bufsize-1);
+            alteration_value(&root, buffer, bufsize-1);
             
             if (!count)
                 printf("%s\n", buffer);
             
-            if (fast_inc)
-                if (!node_inc_inplace(fast_inc))
+            if (fast_inc) {
+                if (!alteration_inc_inplace(fast_inc)) {
                     fast_inc = NULL;
+                }
+                else {
+                    fasts++;
+                }
+            }
             if (!fast_inc) {
-                fast_inc = node_inc(&root);
+                fast_inc = alteration_inc(&root);
                 if (!fast_inc)
                     break;
             }
@@ -90,7 +96,9 @@ int main(int argc, char* argv[]) {
         if (count)
             printf("%lld\n", i);
         
-        node_free(&root);
+        PRINT_DBG("Fast increments used: %d\n", fasts);
+        
+        alteration_free(&root);
         regexp_free(&regexp);
     }
     

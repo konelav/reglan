@@ -1,4 +1,6 @@
 *.txt
 *.o
+*.a
+*.so
 reglan
 reglan_dbg
