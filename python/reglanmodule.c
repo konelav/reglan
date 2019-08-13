@@ -45,6 +45,44 @@
 #include "../src/print.c"
 
 
+static char REGLAN_MODULE_DOC[] = "REGular LANguage generator \n\
+\n\
+Reglan is tiny library for generating set of words given regular \
+expressions. The syntax of these expressions is pretty similar \
+to that is used in `re` python module. \n\
+\n\
+It supports: \n\
+  - all types of quantifiers (`*`, `+`, `?`, `{n}`, `{n,m}` and `{n,}`); \n\
+  - character sets with ranges and negations (`[qwe]`, `[a-z]`, `[^0-9]`); \n\
+  - character classes such as `.`, `\\d`, `\\S` and so on; \n\
+  - escaped special chars and hex-codes such as `\\t`, `\\xDD` and so on; \n\
+  - grouping with brackets and backreferences, e.g. `\\1`; \n\
+  - alternatives from files. e.g. `(?F/usr/share/dict/words)` enumerates all lines from `words` file. \n\
+\n\
+The only thing provided by module is `reglan` generator type.";
+
+static char REGLAN_TYPE_DOC[] = "Generator of words of regular language \n\
+\n\
+This generator enumerates all words that matches to given regular expression. \n\
+Argument of it's constructor is as follows: \n\
+    - @pattern that contains string (byte-sequence) of regular expression \n\
+       and as such defines some regular language, or set of words; \n\
+    - @offset that contains number of words from the beginning that must be \n\
+       skipped before generating \n\
+    - @count that contains number of words that might be generated; the actual \n\
+       number of generated words can be less than this value, in case set of \n\
+       words exhausts earlier; \n\
+    - @bufsize that contains size of longest possible word it can generate; \n\
+       this parameter will be removed in near future and internal buffer will \n\
+       be automatically increasing. \n\
+\n\
+This generator supports `len()` call that returns number of words it \
+can generate (accounting @offset and @count parameters). \n\
+Also it supports subscripting with single integer `[d]` which returns d-th \
+word of language, and subscripting with two integers `[start:stop]` one of \
+which can abscent (`[:stop]`, `[start:]`). \n\
+";
+
 #define BUFFER_DEFAULT_SIZE     1024
 
 typedef struct {
@@ -231,7 +269,7 @@ static PyTypeObject PyReglanType = {
     0,                         /*tp_setattro*/
     0,                         /*tp_as_buffer*/
     Py_TPFLAGS_DEFAULT,        /*tp_flags*/
-    "Generator of words of regular language specified with regular expression", /* tp_doc */
+    REGLAN_TYPE_DOC,           /* tp_doc */
     0,                         /* tp_traverse */
     0,                         /* tp_clear */
     0,                         /* tp_richcompare */
@@ -257,7 +295,7 @@ static PyMethodDef methods[] = {
 };
 
 
-MODULE_DEF("reglan", NULL, methods);
+MODULE_DEF("reglan", REGLAN_MODULE_DOC, methods);
 
 MODULE_INIT(reglan)
 {
@@ -266,7 +304,7 @@ MODULE_INIT(reglan)
     if (PyType_Ready(&PyReglanType) < 0)
         MODULE_RETURN(NULL);
     
-    MODULE_CREATE(m, "reglan", NULL, methods)
+    MODULE_CREATE(m, "reglan", REGLAN_MODULE_DOC, methods)
     
     if (!m)
         return MODULE_ERROR;

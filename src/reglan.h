@@ -5,15 +5,69 @@
 #include <stdio.h>
 #include <string.h>
 
-#define VERSION     "0.3.0"
+/** \file reglan.h
+ *  \brief Common definitions and module interface
+ * 
+ * This file provides some macros, typedefs and function prototypes for 
+ * use `reglan` libraries (either static or shared).
+ */
 
+/** \def VERSION
+ *  \brief C-string with current reglan version
+ * 
+ * Version conforms one of the most widely used tradition, i.e. it has 
+ * three decimal numbers separated by dot '.':
+ *   - the first number called *MAJOR* and corresponds to set of back-compatible 
+ *     APIs, i.e. user can expect that if his code works with some version 
+ *     of library, then it will also work with any further version with 
+ *     the save *MAJOR* component; the only exception for this rule is 
+ *     zero major version 0.x.x, which assumes that project is on the 
+ *     early stages and API just can't be stable enough (yet);
+ *   - the second number called *MINOR* and increases when some feature 
+ *     added to library (usually it means that API was extended with some 
+ *     function, or in case of `reglan` itself it could mean that supported 
+ *     syntax was extended);
+ *   - the last number called *RELEASE* or *REVISION* or the like and 
+ *     increased when some bugs was fixed (usually API has not changed 
+ *     at all).
+ */
+#define VERSION     "0.4.1"
+
+/** \def UNLIMITED
+ *  \brief Denotes infinite length
+ * 
+ * This macro used to mark length of infinite sequences, e.g. maximum 
+ * number of repetitions of expression with quantifiers `*`, `+`, or `{n,}`.
+ */
 #define UNLIMITED   (-1)
 
+/** \def BIGNUM
+ *  \brief Maximum positive integer that can be handled by library
+ * 
+ * This big value used for overflows detection on arithmetic operations.
+ */
 #define BIGNUM      ((long long)0x7FFFFFFFFFFFFFFF)
 
+/** \def MIN_CHAR
+ *  \brief Lower limit of dot class '.'
+ * 
+ * Minimum ASCII code for matching dot class '.'.
+ */
 #define MIN_CHAR    (32)
+/** \def MAX_CHAR
+ *  \brief Upper limit of dot class '.'
+ * 
+ * Maximum ASCII code for matching dot class '.'.
+ */
 #define MAX_CHAR    (128)
 
+/** \def LIST_INIT
+ *  \brief Initialize dynamic array with default capacity equals to 4
+ * 
+ * @pList pointer to structure that must contain fields `capacity`,
+ *        `count` and @Type (second argument)
+ * @Type pointer to array with length `capacity` and `count` items in use
+ */
 #define LIST_INIT(pList, Type) { \
     (pList)->capacity = 4; \
     (pList)->count = 0; \

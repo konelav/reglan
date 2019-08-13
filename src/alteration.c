@@ -209,7 +209,7 @@ int alteration_value(struct SAlteration *p, char *dst, int max_length) {
     p->last_dst = dst;
     switch (p->src->type) {
         case TBackref:
-            if (p->src->v.ref.expr->last) {
+            if (p->src->v.ref.expr && p->src->v.ref.expr->last) {
                 length = alteration_value(p->src->v.ref.expr->last, dst, max_length);
             }
             else {
@@ -250,7 +250,7 @@ int alteration_inc_inplace(struct SAlteration *p) {
         return 0;
     switch (p->src->type) {
         case TBackref:
-            if (!p->src->v.ref.expr->last)
+            if (!p->src->v.ref.expr || !p->src->v.ref.expr->last)
                 return 0;
             if (!alteration_inc_inplace(p->src->v.ref.expr->last))
                 return 0;

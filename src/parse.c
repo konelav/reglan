@@ -47,7 +47,6 @@ static int parse_hex(char ch) {
     if ('a' <= ch && ch <= 'f')
         return (ch - 'a' + 10);
     PRINT_ERR("Can't parse hex char '%c'\n", ch);
-    exit(-1);
     return 0;
 }
 
@@ -56,8 +55,8 @@ static char *parse_range(char *src, int *min_count, int *max_count) {
     char *comma;
     
     if (!(end = strchr(src, '}'))) {
-        PRINT_ERR("Can't find enclosing char }\n");
-        exit(-1);
+        PRINT_ERR("Can't find enclosing bracket }\n");
+        end = src + strlen(src) - 1;
     }
     
     *min_count = atoi(src + 1);
@@ -177,7 +176,7 @@ static char *parse_set(char *src, char **set, int *set_length) {
     
     if (!src[index]) {
         PRINT_ERR("Can't find matching ']'\n");
-        exit(-1);
+        index--;
     }
     
     if (negate) {
@@ -422,7 +421,7 @@ static void set_backrefs(struct SRegexpr *p, struct SRegexpr *backrefs[]) {
         if (1 <= r && r <= 9) {
             if (!backrefs[r]) {
                 PRINT_ERR("Undefined backref #%d\n", r);
-                exit(-1);
+                p->v.ref.expr = NULL;
             }
             else {
                 p->v.ref.expr = backrefs[r];

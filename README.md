@@ -223,7 +223,6 @@ TODO
 ----
 
 
-  - do not exit(-1) on errors (at least while embedding to other languages)
   - better documentation, including:
     + comments everywhere
     + doxygen comments
