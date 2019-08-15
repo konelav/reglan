@@ -219,9 +219,29 @@ There is simple shellscript that do the following:
   that produced executable runs correctly
 
 
+Python extension
+----------------
+
+Python extension can be built:
+
+    $ cd python && python setup.pu build && sudo python setup.py install
+    $ python
+    Type "help", "copyright", "credits" or "license" for more information.
+    >>> import reglan
+    >>> list(reglan.reglan("[012][34][56]"))
+    ['035', '036', '046', '046', '136', '136', '146', '146', '236', '236', '246', '246']
+    >>> for word in reglan.reglan("a*b?c{2,4}")[100:105]:
+    ...     print(word)
+    ... 
+    aaaaaaaaaaaaaaaaabcc
+    aaaaaaaaaaaaaaaaaccc
+    aaaaaaaaaaaaaaaabccc
+    aaaaaaaaaaaaaaaacccc
+    aaaaaaaaaaaaaaabcccc
+
+
 TODO
 ----
-
 
   - better documentation, including:
     + comments everywhere

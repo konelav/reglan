@@ -1,0 +1,4 @@
+*.pdf
+latex/*
+html/*
+Doxyfile
