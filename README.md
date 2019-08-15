@@ -224,7 +224,7 @@ Python extension
 
 Python extension can be built:
 
-    $ cd python && python setup.pu build && sudo python setup.py install
+    $ cd python && python setup.py build && sudo python setup.py install
     $ python
     Type "help", "copyright", "credits" or "license" for more information.
     >>> import reglan
