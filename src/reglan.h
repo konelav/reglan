@@ -30,7 +30,7 @@
  *     increased when some bugs was fixed (usually API has not changed 
  *     at all).
  */
-#define VERSION     "0.4.1"
+#define VERSION     "0.4.2"
 
 /** \brief Denotes infinite length
  * 
