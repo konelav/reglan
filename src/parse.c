@@ -1,17 +1,18 @@
 #include "reglan.h"
 
-static void chars_to_set(char *chars, int chars_length, char **set, int *set_length);
+static void chars_to_set(const char *chars, int chars_length, char **set, int *set_length);
 static void make_full_set(char **set, int *set_length);
 static int parse_hex(char ch);
-static char *parse_range(char *src, int *min_count, int *max_count);
-static char *parse_escaped_sequence(char *src, char **set, int *set_length);
-static char *parse_set(char *src, char **set, int *set_length);
-static char *parse_words(char *src, char **fname, char ***words, int *count);
+static const char *parse_range(const char *src, int *min_count, int *max_count);
+static const char *parse_escaped_sequence(const char *src, char **set, int *set_length);
+static const char *parse_set(const char *src, char **set, int *set_length);
+static const char *parse_words(const char *src, char **fname, char ***words, int *count);
+static const char *parse_expr(const char *src, struct SRegexpr *p, int *total_groups);
 
 static void find_backrefs(struct SRegexpr *p, struct SRegexpr *backrefs[]);
 static void set_backrefs(struct SRegexpr *p, struct SRegexpr *backrefs[]);
 
-static void chars_to_set(char *chars, int chars_length, char **set, int *set_length) {
+static void chars_to_set(const char *chars, int chars_length, char **set, int *set_length) {
     int i;
     
     *set_length = 0;
@@ -50,8 +51,8 @@ static int parse_hex(char ch) {
     return 0;
 }
 
-static char *parse_range(char *src, int *min_count, int *max_count) {
-    char *end;
+static const char *parse_range(const char *src, int *min_count, int *max_count) {
+    const char *end;
     char *comma;
     
     if (!(end = strchr(src, '}'))) {
@@ -76,7 +77,7 @@ static char *parse_range(char *src, int *min_count, int *max_count) {
     return end;
 }
 
-static char *parse_escaped_sequence(char *src, char **set, int *set_length) {
+static const char *parse_escaped_sequence(const char *src, char **set, int *set_length) {
     int index = 1;
     char ch = src[index];
     switch (src[index]) {
@@ -130,7 +131,7 @@ static char *parse_escaped_sequence(char *src, char **set, int *set_length) {
     return src + index;
 }
 
-static char *parse_set(char *src, char **set, int *set_length) {
+static const char *parse_set(const char *src, char **set, int *set_length) {
     int index = 1;
     int negate;
     int prev_ch = -1;
@@ -152,7 +153,7 @@ static char *parse_set(char *src, char **set, int *set_length) {
         if (ch == '\\') {
             char *subset;
             int subset_length, i;
-            char *end = parse_escaped_sequence(src + index, &subset, &subset_length);
+            const char *end = parse_escaped_sequence(src + index, &subset, &subset_length);
             for (i = 0; i < subset_length; i++)
                 all_chars[(unsigned int)subset[i]] = 1;
             PRINT_DBG("Escaped sequence added: [%d] '%s'\n", subset_length, subset);
@@ -190,10 +191,10 @@ static char *parse_set(char *src, char **set, int *set_length) {
     return src + index;
 }
 
-static char *parse_words(char *src, char **fname, char ***words, int *count) {
+static const char *parse_words(const char *src, char **fname, char ***words, int *count) {
     char buffer[1024];
     FILE *fdict;
-    char *end;
+    const char *end;
     int i, j;
     
     end = strchr(src, ')');
@@ -244,7 +245,7 @@ static char *parse_words(char *src, char **fname, char ***words, int *count) {
     return end;
 }
 
-char *parse_expr(char *src, struct SRegexpr *p, int *total_groups) {
+static const char *parse_expr(const char *src, struct SRegexpr *p, int *total_groups) {
     int index;
     struct SRegexpr sub;
     
@@ -261,7 +262,7 @@ char *parse_expr(char *src, struct SRegexpr *p, int *total_groups) {
     
     for (index = 0; src[index]; index++) {
         int ch = src[index];
-        char *end;
+        const char *end;
         if (ch == '.') {
             struct SRegexpr re;
             memset(&re, 0, sizeof(re));
@@ -326,7 +327,7 @@ char *parse_expr(char *src, struct SRegexpr *p, int *total_groups) {
         }
         else if (ch == '{' && sub.v.concat.count > 0) {
             int last = sub.v.concat.count - 1;
-            char *end = parse_range(src + index, 
+            const char *end = parse_range(src + index, 
                 &sub.v.concat.exprs[last].min_count, 
                 &sub.v.concat.exprs[last].max_count);
             index = end - src;
@@ -500,7 +501,7 @@ void calc_full_length(struct SRegexpr *p) {
     }
 }
 
-void parse(char *src, struct SRegexpr *p, struct SAlteration *root) {
+void parse(const char *src, struct SRegexpr *p, struct SAlteration *root) {
     int total_groups = 0;
     parse_expr(src, p, &total_groups);
     link_backrefs(p);

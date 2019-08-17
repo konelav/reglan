@@ -3,7 +3,7 @@
 static int fill_seq(int need_sum, int maxs[], int seq[], int length);
 static int inc_seq(int maxs[], int seq[], int length);
 static void concatenation_init_alters(struct SConcatenation *p);
-
+static int concatenation_set_length(struct SConcatenation *p, int length);
 
 static int fill_seq(int need_sum, int maxs[], int seq[], int length) {
     int i;
@@ -39,40 +39,7 @@ static int inc_seq(int maxs[], int seq[], int length) {
     }
 }
 
-void concatenation_free(struct SConcatenation *p) {
-    int i;
-    for (i = 0; i < p->count; i++) {
-        alteration_free(&p->alters[i]);
-    }
-    free(p->alters);
-    p->alters = NULL;
-    p->count = p->capacity = 0;
-}
-
-void concatenation_init(struct SConcatenation *p, struct SRegexpr *concat) {
-    int i;
-    if (concat->type != TConcat) {
-        PRINT_ERR("Wrong regexpr type for Concatenation initialization\n");
-        exit(-1);
-    }
-    p->src = concat;
-    p->maxs = (int*)calloc(concat->v.concat.count, sizeof(int));
-    p->added = (int*)calloc(concat->v.concat.count, sizeof(int));
-    p->min_length = 0;
-    LIST_INIT(p, alters);
-    for (i = 0; i < concat->v.concat.count; i++) {
-        struct SRegexpr *sub = &concat->v.concat.exprs[i];
-        p->min_length += sub->min_count;
-    }
-    concatenation_reset(p);
-}
-
-void concatenation_reset(struct SConcatenation *p) {
-    p->overflowed = 0;
-    concatenation_set_length(p, p->min_length);
-}
-
-int concatenation_set_length(struct SConcatenation *p, int length) {
+static int concatenation_set_length(struct SConcatenation *p, int length) {
     int i;
     int global_max = length - p->min_length;
     for (i = 0; i < p->src->v.concat.count; i++) {
@@ -121,25 +88,6 @@ static void concatenation_init_alters(struct SConcatenation *p) {
     }
 }
 
-struct SAlteration *concatenation_inc(struct SConcatenation *p) {
-    int i;
-    for (i = p->count - 1; i >= 0; i--) {
-        if (alteration_inc(&p->alters[i]) != NULL)
-            return &p->alters[p->count - 1];
-    }
-    // all alters overflowed, try rearrange current length
-    if (inc_seq(p->maxs, p->added, p->src->v.concat.count)) {
-        concatenation_init_alters(p);
-        return &p->alters[p->count - 1];
-    }
-    if (concatenation_set_length(p, p->count + 1)) {
-        return &p->alters[p->count - 1];
-    }
-    p->overflowed = 1;
-    //concatenation_reset(p);
-    return NULL;
-}
-
 static long long concatenation_seq_capacity(struct SConcatenation *p) { // for fixed length
     long long ret = 1;
     int i;
@@ -159,6 +107,58 @@ static long long concatenation_seq_capacity(struct SConcatenation *p) { // for f
         }
     }
     return ret;
+}
+
+void concatenation_free(struct SConcatenation *p) {
+    int i;
+    for (i = 0; i < p->count; i++) {
+        alteration_free(&p->alters[i]);
+    }
+    free(p->alters);
+    p->alters = NULL;
+    p->count = p->capacity = 0;
+}
+
+void concatenation_init(struct SConcatenation *p, struct SRegexpr *concat) {
+    int i;
+    if (concat->type != TConcat) {
+        PRINT_ERR("Wrong regexpr type for Concatenation initialization\n");
+        exit(-1);
+    }
+    p->src = concat;
+    p->maxs = (int*)calloc(concat->v.concat.count, sizeof(int));
+    p->added = (int*)calloc(concat->v.concat.count, sizeof(int));
+    p->min_length = 0;
+    LIST_INIT(p, alters);
+    for (i = 0; i < concat->v.concat.count; i++) {
+        struct SRegexpr *sub = &concat->v.concat.exprs[i];
+        p->min_length += sub->min_count;
+    }
+    concatenation_reset(p);
+}
+
+void concatenation_reset(struct SConcatenation *p) {
+    p->overflowed = 0;
+    concatenation_set_length(p, p->min_length);
+}
+
+struct SAlteration *concatenation_inc(struct SConcatenation *p) {
+    int i;
+    for (i = p->count - 1; i >= 0; i--) {
+        if (alteration_inc(&p->alters[i]) != NULL)
+            return &p->alters[p->count - 1];
+    }
+    // all alters overflowed, try rearrange current length
+    if (inc_seq(p->maxs, p->added, p->src->v.concat.count)) {
+        concatenation_init_alters(p);
+        return &p->alters[p->count - 1];
+    }
+    if (concatenation_set_length(p, p->count + 1)) {
+        return &p->alters[p->count - 1];
+    }
+    p->overflowed = 1;
+    //concatenation_reset(p);
+    return NULL;
 }
 
 void concatenation_set_offset(struct SConcatenation *p, long long offset) {

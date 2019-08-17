@@ -259,9 +259,9 @@ struct SRegexpr {
                                      to fit to `long long` type */
 };
 
-/** \brief Concrete alteration during words generation
+/** \brief Alteration iterator
  * 
- * Serves state of iterator through all possible alternatives, including
+ * Serves state of concrete alteration through all possible alternatives, including
  * iteration of each alternative themselves.
  */
 struct SAlteration {
@@ -286,9 +286,9 @@ struct SAlteration {
     int last_length;                /**< Length of last value of this expression */
 };
 
-/** \brief Concrete concatenation during words generation
+/** \brief Concatenation iterator
  * 
- * Serves state of concatenation, i.e. fixed sequence of some expressions,
+ * Serves state of concrete concatenation, i.e. fixed sequence of some expressions,
  * each of which is repeated zero or more times depending on quantifier of
  * its origin.
  */
@@ -310,30 +310,141 @@ struct SConcatenation {
 };
 
 /* arith.c */
+/** \brief Addition with overflow check
+ * 
+ * \param a first number
+ * \param b second number
+ * \return sum `a + b` if it is less than `BIGNUM`, otherwise `UNLIMITED`
+ */
 long long ll_add(long long a, long long b);
+/** \brief Multiplication with overflow check
+ * 
+ * \param a first number
+ * \param b second number
+ * \return sum `a * b` if it is less than `BIGNUM`, otherwise `UNLIMITED`
+ */
 long long ll_mul(long long a, long long b);
 
 /* parse.c */
-char *parse_expr(char *src, struct SRegexpr *p, int *total_groups);
+/** \brief Fills backref pointers according to group numbers
+ * 
+ * Consists of two recursive operations:
+ *   - build list of pointers to `struct SRegexpr` where `i`-th element
+ *     points to regexp with `ngroup` equal to `i`;
+ *   - set `expr` value of each `struct SBackref` to pointer from list
+ *     indexed with its `num` value.
+ * 
+ * \param p root regular expression
+ */
 void link_backrefs(struct SRegexpr *p);
+/** \brief Calculates total number of words in regular language
+ * 
+ * Recursively fills `full_length` value of each `struct SRegexpr`.
+ * If number of words is infinite or bigger than `BIGNUM`, then
+ * `full_length` will be set to value `UNLIMITED`.
+ * 
+ * \param p root regular expression
+ */
 void calc_full_length(struct SRegexpr *p);
-void parse(char *src, struct SRegexpr *p, struct SAlteration *root);
+/** \brief Parse string to regular expression representation
+ * 
+ * \param src pointer to null-terminated string that contains regular expression
+ * \param p (out) structure where to place parsed representation
+ * \param root (out) structure where to place language iterator (set to very first word of language)
+ */
+void parse(const char *src, struct SRegexpr *p, struct SAlteration *root);
+/** \brief Free memory allocated by regular expression representation
+ * 
+ * Recursively free regular expression and all its subexpressions,
+ * including sets of characters and words.
+ * 
+ * \param p root regular expression
+ */
 void regexp_free(struct SRegexpr *p);
 
 /* alteration.c */
+/** \brief Free memory allocated by alteration iterator
+ * 
+ * Recursively free alteration iterator and all its concatenations (if there are any).
+ * 
+ * \param p root alteration iterator
+ */
 void alteration_free(struct SAlteration *p);
 void alteration_init(struct SAlteration *p, struct SRegexpr *re);
 void alteration_reset(struct SAlteration *p);
+/** \brief Move alteration iterator forward to the next word
+ * 
+ * According to the actual type of alteration does the following:
+ *   - for `TBackref` simply does nothing;
+ *   - for `TCharset` and `TWords` moves to the next character or word in
+ *     set accordingly, starting with first one after last;
+ *   - for `TAlter` moves to the next non-overflowed alternative; if end 
+ *     of alternatives reached, then tries to increment all non-overflowed ones
+ *     and start from beginning.
+ * 
+ * \param p pointer to itrator to be incremented
+ * \return pointer to the most descent iterator that was actually incremented,
+ *         or `NULL` if end is reached
+ */
 struct SAlteration *alteration_inc(struct SAlteration *p);
 void alteration_set_offset(struct SAlteration *p, long long offset);
+/** \brief Evaluates current iterator value
+ * 
+ * Places string representation of current word pointed by iterator to
+ * the specified location in memory.
+ * 
+ * \param p pointer to iterator to be instantiated
+ * \param dst pointer to buffer to which word should be copied
+ * \param max_length maximum length of word (buffer length)
+ * \return number of characters in current word (copied to the buffer)
+ */
 int alteration_value(struct SAlteration *p, char *dst, int max_length);
+/** \brief Tries to move iterator fast
+ * 
+ * This function is intended for optimization. Its argument must be 
+ * pointer returned by `alteration_inc()`. If this function succeed,
+ * then root iterator argument of corresponding `alteration_inc()` call
+ * can be considered incremented also, and its value is placed in exactly
+ * same memory buffer that is requested by the last call of `alteration_value()`
+ * for this iterator.
+ * 
+ * The only types of iterators supported by this function are `TCharset`
+ * and `TWords`: it just tries to move to the next option, and succeed
+ * if and only if the length of next option equals to the length of
+ * current option.
+ * 
+ * \param pointer to iterator to be incremented and instantiated at once
+ * \return `1` if successfully incremented, `0` otherwise
+ */
 int alteration_inc_inplace(struct SAlteration *p);
 
 /* concatenation.c */
+/** \brief Free memory allocated by concatenation iterator
+ * 
+ * Recursively free concatenation iterator and all its alterations (if there are any).
+ * 
+ * \param p root concatenation iterator
+ */
 void concatenation_free(struct SConcatenation *p);
 void concatenation_init(struct SConcatenation *p, struct SRegexpr *concat);
 void concatenation_reset(struct SConcatenation *p);
-int concatenation_set_length(struct SConcatenation *p, int length);
+/** \brief Move concatenation iterator forward to the next word
+ * 
+ * Tries to increment right-most alteration iterator of concatenated
+ * sequence. If it overflows, then tries to increment next-to-the-left
+ * iterator and so on. If all iterators overflow, then checks if the same
+ * number of *tokens* (repetitions) can be re-distributed between alterations 
+ * with given quantifiers, i.e. remove one repetition from some alteration
+ * and add repetition to some other alteration. If all possible distributions
+ * for current total number of tokens are iterated, then it tries to increase
+ * number of tokens by one and starts from beginning. If maximum number of
+ * tokens for this concatenation is reached, then marks concatenation as
+ * overflowed and sets its length to minimum number of tokens.
+ * 
+ * \param p pointer to itrator to be incremented
+ * \return pointer to the most descent iterator that was actually incremented,
+ *         or `NULL` if end is reached
+ */
 struct SAlteration *concatenation_inc(struct SConcatenation *p);
 void concatenation_set_offset(struct SConcatenation *p, long long offset);
 int concatenation_value(struct SConcatenation *p, char *dst, int max_length);
