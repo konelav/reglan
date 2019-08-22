@@ -3,7 +3,7 @@
 #include <unistd.h>
 
 void usage(char *execname) {
-    printf("Usage: %s [-v] [-h] [-u] [-p] [-d] [-c] [-o <offset>] [-n <max_number>] [-b <buffer_size] [<regexpr>]*\n", execname);
+    printf("Usage: %s [-v] [-h] [-u] [-p] [-d] [-c] [-o <offset>] [-n <max_number>] [<regexpr>]*\n", execname);
     printf("   -v       print version\n");
     printf("   -h, -u   print usage (this info)\n");
     printf("   -p       print parsed expression\n");
@@ -11,7 +11,6 @@ void usage(char *execname) {
     printf("   -c       do not print generated words, buf print their total count after generation finishs\n");
     printf("   -o <N>   skip <N> words from the beginning (default - do not skip anything)\n");
     printf("   -n <N>   limit generated words count to this value (default - unlimited)\n");
-    printf("   -b <S>   set maximum word length to this value (default - 1023 bytes)\n");
 }
 
 int main(int argc, char* argv[]) {
@@ -47,9 +46,6 @@ int main(int argc, char* argv[]) {
             case 'n':
                 max_n = atoll(optarg);
                 break;
-            case 'b':
-                bufsize = atoi(optarg);
-                break;
             default:
                 usage(argv[0]);
         }
@@ -74,7 +70,10 @@ int main(int argc, char* argv[]) {
             if (debug)
                 alteration_print(&root, 0);
             
-            alteration_value(&root, buffer, bufsize-1);
+            while (alteration_value(&root, buffer, bufsize-1) == bufsize-1) {
+                bufsize += 1024;
+                buffer = (char*)realloc(buffer, bufsize);
+            }
             
             if (!count)
                 printf("%s\n", buffer);

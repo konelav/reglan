@@ -71,10 +71,7 @@ Argument of it's constructor is as follows: \n\
        skipped before generating \n\
     - @count that contains number of words that might be generated; the actual \n\
        number of generated words can be less than this value, in case set of \n\
-       words exhausts earlier; \n\
-    - @bufsize that contains size of longest possible word it can generate; \n\
-       this parameter will be removed in near future and internal buffer will \n\
-       be automatically increasing. \n\
+       words exhausts earlier. \n\
 \n\
 This generator supports `len()` call that returns number of words it \
 can generate (accounting @offset and @count parameters). \n\
@@ -119,15 +116,12 @@ static PyObject *Reglan_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     PyObject *pattern = NULL;
     
     long long offset = 0, count = UNLIMITED;
-    int bufsize = BUFFER_DEFAULT_SIZE;
-    static char *kwlist[] = {"pattern", "offset", "count", "bufsize", NULL};
+    static char *kwlist[] = {"pattern", "offset", "count", NULL};
     
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|SLLi", kwlist, 
-                                     &pattern, &offset, &count, &bufsize))
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|SLL", kwlist, 
+                                     &pattern, &offset, &count))
         return NULL; 
     
-    if (bufsize <= 0)
-        bufsize = BUFFER_DEFAULT_SIZE;
     if (offset < 0)
         offset = 0;
     if (count < 0)
@@ -141,7 +135,7 @@ static PyObject *Reglan_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 
     self->pattern = pattern;
     
-    self->bufsize = bufsize;
+    self->bufsize = BUFFER_DEFAULT_SIZE;
     self->buffer = (char*)calloc(1, self->bufsize);
     
     self->offset = offset;
@@ -165,7 +159,10 @@ static PyObject *Reglan_next(Reglan* self)
     if (self->count != UNLIMITED && self->pos == self->count)
         return NULL;
     
-    alteration_value(&self->root, self->buffer, self->bufsize-1);
+    while (alteration_value(&self->root, self->buffer, self->bufsize-1) == self->bufsize-1) {
+        self->bufsize += 1024;
+        self->buffer = (char*)realloc(self->buffer, self->bufsize);
+    }
     self->pos++;
     
     if (self->fast_inc && 

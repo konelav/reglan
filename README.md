@@ -164,15 +164,14 @@ Usage
 -----
 
     $ ./reglan -u
-    Usage: ./reglan [-v] [-h] [-u] [-p] [-d] [-c] [-o <offset>] [-n <max_number>] [-b <buffer_size>] [<regexpr>]*
+    Usage: ./reglan [-v] [-h] [-u] [-p] [-d] [-c] [-o <offset>] [-n <max_number>] [<regexpr>]*
        -v       print version
        -h, -u   print usage (this info)
        -p       print parsed expression
        -d       print debug info, i.e. expression template state for each word
-       -c       do not print generated words, buf print their total count after generation finishs
+       -c       do not print generated words, but print their total count after generation finishs
        -o <N>   skip <N> words from the beginning (default - do not skip anything)
        -n <N>   limit generated words count to this value (default - unlimited)
-       -b <S>   set maximum word length to this value (default - 1023 bytes)
 
 
 Unless `-c` is given, `reglan` will output every word in strict order, 
@@ -184,8 +183,9 @@ Known issues
 ------------
 
   - Unicode is not supported (yet)
-  - Syntactically wrong input leads to undefined behaviour
+  - Syntactically wrong input may lead to undefined behaviour
   - Undefined backreferences will be silently dropped
+  - Cyclic backreferences (e.g. `(\1)` or `(\2)(\1)`) lead to undefined behaviour
   - Although it is guaranteed (I hope) that every word of specified 
   language will be printed **at least** once, it is not guaranteed that 
   it will be printed **at most** once, i.e. some words can be printed 
@@ -253,7 +253,6 @@ TODO
   - some way to reproduce `john` functionality, e.g. uppercase-lowercase 
   word, capitalize first/last letter etc.
   - unicode support;
-  - automatically increase buffer for output word as needed;
   - test with different environments, including Windows;
   - add wrappers for different languages/platforms:
     + nodejs, ruby, perl, php
